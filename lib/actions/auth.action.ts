@@ -3,111 +3,114 @@
 import { auth, db } from "@/firebase/admin";
 import { cookies } from "next/headers";
 
+const SESSION_DURATION = 60 * 60 * 24 * 7; // 1 week
 
- // in seconds
-const ONE_WEEK = 60*60*24*7;
+export async function setSessionCookie(idToken: string) {
+  const cookieStore = await cookies();
+
+  const sessionCookie = await auth.createSessionCookie(idToken, {
+    expiresIn: SESSION_DURATION * 1000,
+  });
+
+  cookieStore.set("session", sessionCookie, {
+    maxAge: SESSION_DURATION,
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    path: "/",
+    sameSite: "lax",
+  });
+}
+
 export async function signUp(params: SignUpParams) {
-  const { uid, name, email, password } = params;
+  const { uid, name, email } = params;
 
-    try {
-        const userRecord = await db.collection('users').doc(uid).get();
-        if (userRecord.exists){
-            return{
-                success: false,
-                message: "User already exists.SignIn instead"
-            }
-        }
-        await db.collection('users').doc(uid).set({ 
-            name, email, password
-        })
-         return{
-            success : true,
-            message: "User created successfully. Please sign in."
-         }
-         
-    }catch(e:any)
-    {
-        console.error("Error signing up:", e);
-        if(e.code === "auth/email-already-in-use")
-        {
-            return {
-                success: false,
-                message: "Email is already in use."
-            };
-        }
-        return {
-            success: false,
-            message: "Failed to sign up. Please try again."
-        }
-    } 
+  try {
+    const userRecord = await db.collection("users").doc(uid).get();
+    if (userRecord.exists)
+      return {
+        success: false,
+        message: "User already exists. Please sign in.",
+      };
+
+    await db.collection("users").doc(uid).set({
+      name,
+      email,
+      createdAt: new Date(),
+    });
+
+    return {
+      success: true,
+      message: "Account created successfully. Please sign in.",
+    };
+  } catch (error: any) {
+    console.error("Error creating user:", error);
+    return {
+      success: false,
+      message: "Failed to create account. Please try again.",
+    };
+  }
 }
 
 export async function signIn(params: SignInParams) {
-    const { email, idToken } = params;
-    try{ 
-        const userRecord = await auth.getUserByEmail(email);
-        if(!userRecord){
-            return {
-                success:false,
-                message:"Invalid email. Create an account."
-            }
-        } await setSessionCookie(idToken);
-        return {
-            success:true,
-            message:"Signed in successfully."
-        }
+  const { email, idToken } = params;
 
-    }catch(e:any){
-        console.log(e);
-        return {
-            success:false,
-            message:"Failed to sign in. Please try again."
-        }
+  try {
+    // 1. Check if user exists. Admin SDK throws error if not found.
+    await auth.getUserByEmail(email);
 
-}
-}
-export async function setSessionCookie(idToken: string ){
-    const cookieStore= await cookies();
+    // 2. Set the cookie
+    await setSessionCookie(idToken);
+    return {
+      success: true,
+      message: "Welcome to Intervo!",
+    };
+    
+  } catch (error: any) {
+    console.log("Admin Auth Error:", error.code);
 
-    const sessionCookie = await auth.createSessionCookie(idToken,
-         {expiresIn: ONE_WEEK*1000})//expire in a week multiplied with millisecs
-
-    cookieStore.set('session', sessionCookie, {
-        maxAge: ONE_WEEK, //expire in a week in seconds
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        path: '/',
-        sameSite: 'lax'
-    });
-}
-
-export async function getCurrentUser(): Promise<User | null> { // for letting only verified users to access the app and also to get user details in client side without passing them from server
-    const cookieStore = await cookies();
-
-    const sessionCookie = cookieStore.get('session')?.value;
-
-    if(!sessionCookie) return null;
-    try{
-        const decodedClaims= await auth.verifySessionCookie(sessionCookie, true);
-
-        const userRecord = await db.collection('users').doc(decodedClaims.uid).get();
-        if(!userRecord.exists) return null;
-        return {
-            ...userRecord.data(),
-            id: userRecord.id,
-
-        } as User;
-
+    // 4. Specifically handle "User Not Found" to trigger your frontend redirect
+    if (error.code === 'auth/user-not-found') {
+      return {
+        success: false,
+        message: "account-not-found", // Send this specific string
+      };
     }
-    catch(e:any){
-        console.log("Error verifying session cookie:", e);
-        return null;
+
+    return {
+      success: false,
+      message: "Failed to log into account. Please try again.",
+    };
+  }
 }
+
+export async function signOut() {
+  const cookieStore = await cookies();
+  cookieStore.delete("session");
 }
 
-export async function isAuthenticated() { //whether user is authenticated or not, we can use this in server components to protect routes
-    const user = await getCurrentUser();
+export async function getCurrentUser(): Promise<User | null> {
+  const cookieStore = await cookies();
+  const sessionCookie = cookieStore.get("session")?.value;
+  
+  if (!sessionCookie) return null;
 
+  try {
+    const decodedClaims = await auth.verifySessionCookie(sessionCookie, true);
+    const userRecord = await db.collection("users").doc(decodedClaims.uid).get();
+    
+    if (!userRecord.exists) return null;
 
-    return !!user; //true-> authenticated, false-> not authenticated we use double negation to convert user object to boolean example: if user is null (means no user), !user is true, and !!user is false. If user is an object, !user is false, and !!user is true.
+    return {
+      ...userRecord.data(),
+      id: userRecord.id,
+    } as User;
+  } catch (error) {
+    console.error("Session verification failed:", error);
+    return null;
+  }
+}
+
+export async function isAuthenticated() {
+  const user = await getCurrentUser();
+  return !!user;
 }
