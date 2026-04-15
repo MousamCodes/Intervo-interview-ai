@@ -3,40 +3,34 @@ import { generateText } from "ai";
 import { getRandomInterviewCover } from "@/lib/utils";
 import { db } from "@/firebase/admin";
 
-export async function POST(request: Request) {
-  try {
-    const { type, role, level, techstack, amount, userid } = await request.json();
 
+export async function POST(request: Request) {
+  
+    const { type, role, level, techstack, amount, userid } = await request.json();
+  try {
     const { text } = await generateText({
       model: google("gemini-2.5-flash"),
-      prompt: `You are a Senior Technical Hiring Manager. Generate interview questions for a ${role} position.
-      
-      Context:
-      - Experience Level: ${level}
-      - Tech Stack: ${techstack}
-      - Interview Style: ${type}
-      - Total Questions: ${amount}
-
-      VOICE RULES:
-      1. NO SPECIAL CHARACTERS (*, /, #, _, backticks).
-      2. Conversational tone (speak like a human).
-      3. No markdown formatting.
-
-      OUTPUT:
-      Return ONLY a raw JSON array of strings. No intro, no outro, no markdown blocks.
-      Example: ["Question 1", "Question 2"]`,
+      prompt: `Prepare questions for a job interview.
+        The job role is ${role}.
+        The job experience level is ${level}.
+        The tech stack used in the job is: ${techstack}.
+        The focus between behavioural and technical questions should lean towards: ${type}.
+        The amount of questions required is: ${amount}.
+        Please return only the questions, without any additional text.
+        The questions are going to be read by a voice assistant so do not use "/" or "*" or any other special characters which might break the voice assistant.
+        Return the questions formatted like this:
+        ["Question 1", "Question 2", "Question 3"]`,
     });
 
-    //  Remove potential markdown backticks or hidden whitespace
-    const cleanedText = text.replace(/```json|```/g, "").trim();
-    const questionsArray = JSON.parse(cleanedText);
+    
+
 
     const interviewData = {
       role: role,
       type: type,
       level: level,
-      techstack: techstack.split(",").map((s: string) => s.trim()), // Trim whitespace
-      questions: questionsArray,
+      techstack:techstack, 
+      questions: JSON.parse(text),
       userId: userid,
       finalized: true,
       coverImage: getRandomInterviewCover(),
@@ -45,9 +39,10 @@ export async function POST(request: Request) {
 
     // Save to Firestore and get the generated ID
     const docRef = await db.collection("interviews").add(interviewData);
+    
 
     // Return the ID so frontend can navigate to the interview
-    return Response.json({ success: true, id: docRef.id }, { status: 200 });
+    return Response.json({ success: true }, { status: 200 });
 
   } catch (error: any) {
  
@@ -63,5 +58,5 @@ export async function POST(request: Request) {
 }
 
 export async function GET() {
-  return Response.json({ success: true, data: "Intervo API is ready!" }, { status: 200 });
+  return Response.json({ success: true, question: "Thank You! Interview has been generated" }, { status: 200 });
 }
