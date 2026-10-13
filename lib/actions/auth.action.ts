@@ -1,9 +1,14 @@
-'use server';
+"use server";
 
 import { auth, db } from "@/firebase/admin";
 import { cookies } from "next/headers";
 
 const SESSION_DURATION = 60 * 60 * 24 * 7; // 1 week
+
+type FirebaseError = { code?: string; message?: string };
+
+const getErrorCode = (error: unknown) =>
+  (error as FirebaseError)?.code ?? "unknown";
 
 export async function setSessionCookie(idToken: string) {
   const cookieStore = await cookies();
@@ -35,14 +40,14 @@ export async function signUp(params: SignUpParams) {
     await db.collection("users").doc(uid).set({
       name,
       email,
-      createdAt: new Date(),
+      createdAt: new Date().toISOString(),
     });
 
     return {
       success: true,
       message: "Account created successfully. Please sign in.",
     };
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("Error creating user:", error);
     return {
       success: false,
@@ -55,29 +60,42 @@ export async function signIn(params: SignInParams) {
   const { email, idToken } = params;
 
   try {
-    // 1. Check if user exists. Admin SDK throws error if not found.
-    await auth.getUserByEmail(email);
+    // Admin SDK throws if the auth user does not exist.
+    const userRecord = await auth.getUserByEmail(email);
 
-    // 2. Set the cookie
+    // Self-heal: if the Firestore profile is missing (e.g. sign-up was
+    // interrupted after the auth account was created) create it now so the
+    // user doesn't get stuck in a redirect loop between / and /sign-in.
+    const profileRef = db.collection("users").doc(userRecord.uid);
+    const profile = await profileRef.get();
+    if (!profile.exists) {
+      await profileRef.set({
+        name: userRecord.displayName || email.split("@")[0],
+        email,
+        createdAt: new Date().toISOString(),
+      });
+    }
+
     await setSessionCookie(idToken);
     return {
       success: true,
       message: "Welcome to Intervo!",
     };
-    
-  } catch (error: any) {
-    console.log("Admin Auth Error:", error.code);
+  } catch (error: unknown) {
+    const code = getErrorCode(error);
+    console.error("Admin Auth Error:", code);
 
-    // 4. Specifically handle "User Not Found" to trigger your frontend redirect
-    if (error.code === 'auth/user-not-found') {
+    if (code === "auth/user-not-found") {
       return {
         success: false,
-        message: "account-not-found", // Send this specific string
+        code,
+        message: "No account found for this email. Please sign up first.",
       };
     }
 
     return {
       success: false,
+      code,
       message: "Failed to log into account. Please try again.",
     };
   }
@@ -91,13 +109,13 @@ export async function signOut() {
 export async function getCurrentUser(): Promise<User | null> {
   const cookieStore = await cookies();
   const sessionCookie = cookieStore.get("session")?.value;
-  
+
   if (!sessionCookie) return null;
 
   try {
     const decodedClaims = await auth.verifySessionCookie(sessionCookie, true);
     const userRecord = await db.collection("users").doc(decodedClaims.uid).get();
-    
+
     if (!userRecord.exists) return null;
 
     return {

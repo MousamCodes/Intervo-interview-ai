@@ -1,85 +1,123 @@
-<<<<<<< HEAD
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Intervo 🎙️
 
-## Getting Started
-
-First, run the development server:
-
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
-
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
-
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
-
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
-=======
-# Intervo 🎙️  
 **Real-time AI Voice Interview Platform**
 
-Intervo is a high-performance, full-stack platform designed to help job seekers master their interview skills through real-time AI-driven voice interactions. It simulates technical and behavioral interviews, providing instant feedback, scoring, and performance analytics to bridge the gap between preparation and placement.
+Intervo helps job seekers practice interviews through real-time AI voice conversations. It generates tailored interview questions, conducts the interview by voice, and scores the candidate with personalized, category-by-category feedback.
 
 ---
 
 ## 🚀 Key Features
-* **Real-Time Voice Interaction:** Seamless audio-based interview experience powered by AI.
-* **AI-Driven Feedback:** Instant scoring and personalized insights for every answer.
-* **Secure Authentication:** Professional-grade session management using **Firebase Admin SDK** and **HTTP-only cookies**.
-* **Responsive Dashboard:** A clean, grid-based UI to track past interview performances and scores.
-* **Dynamic Tech Stack:** Automatically identifies and displays tech stack icons for targeted interview practice.
+
+- **AI question generation:** Describe the role, level, tech stack and interview type by voice and Gemini generates a tailored question set.
+- **Real-time voice interviews:** A Vapi-powered interviewer asks the questions, listens, and follows up naturally.
+- **AI-driven feedback:** After the call, the transcript is scored across Communication, Technical Knowledge, Problem Solving, Cultural Fit, and Confidence.
+- **Secure authentication:** Firebase Auth on the client plus Firebase Admin session cookies (HTTP-only) on the server.
+- **Dashboard:** Track your past interviews and scores, and take interviews created by other users.
 
 ---
 
 ## 🛠️ Tech Stack
-* **Frontend:** [Next.js 14+](https://nextjs.org/) (App Router), TypeScript, Tailwind CSS.
-* **UI Components:** Shadcn/UI, Lucide React, Sonner (Toasts).
-* **Backend:** Next.js Server Actions.
-* **Authentication:** Firebase Client SDK + Firebase Admin SDK (Session Cookies).
-* **Database:** Cloud Firestore.
-* **Typography:** Mona Sans.
+
+- **Framework:** Next.js 16 (App Router), React 19, TypeScript
+- **Styling:** Tailwind CSS v4, shadcn/ui, Lucide icons, Sonner toasts
+- **Voice:** [Vapi](https://vapi.ai) Web SDK
+- **AI:** Vercel AI SDK + Google Gemini (`gemini-2.5-flash`)
+- **Auth & Database:** Firebase Auth, Cloud Firestore, Firebase Admin SDK
 
 ---
 
-## 🏗️ Architecture & Security
-Intervo utilizes a dual-SDK Firebase approach to ensure maximum security and scalability:
+## ⚙️ Getting Started
 
-1.  **Client-Side:** Handles the initial user handshake and Firebase Auth triggers.
-2.  **Server-Side:** Uses `firebase-admin` to verify ID tokens and manage `HTTP-only` session cookies. This prevents common vulnerabilities like XSS and CSRF by keeping the session logic strictly on the server.
+### 1. Install dependencies
 
+```bash
+npm install
+```
 
+### 2. Configure environment variables
+
+Create a `.env.local` file in the project root:
+
+```env
+# Firebase Admin (Project settings → Service accounts → Generate new private key)
+FIREBASE_PROJECT_ID=your-project-id
+FIREBASE_CLIENT_EMAIL=firebase-adminsdk-xxxxx@your-project-id.iam.gserviceaccount.com
+FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
+
+# Google AI Studio (https://aistudio.google.com/apikey)
+GOOGLE_GENERATIVE_AI_API_KEY=your-gemini-api-key
+
+# Vapi (https://dashboard.vapi.ai)
+NEXT_PUBLIC_VAPI_WEB_TOKEN=your-vapi-public-key
+NEXT_PUBLIC_VAPI_AGENT_ID=your-vapi-assistant-or-workflow-id
+```
+
+The Firebase **client** config lives in `firebase/client.ts`. Those values are public by design; update them to match your own Firebase project.
+
+### 3. Firebase setup
+
+1. Enable **Email/Password** sign-in under Authentication → Sign-in method.
+2. Create a **Cloud Firestore** database. The app uses three collections: `users`, `interviews`, and `feedback`. No composite indexes are required.
+
+### 4. Vapi setup
+
+The interview *generation* flow starts the Vapi assistant/workflow referenced by `NEXT_PUBLIC_VAPI_AGENT_ID`. That assistant should collect `role`, `level`, `type`, `techstack` and `amount` from the user and then call this app's endpoint:
+
+```
+POST https://<your-domain>/api/vapi/generate
+Content-Type: application/json
+
+{
+  "role": "Frontend Developer",
+  "level": "Junior",
+  "type": "Technical",
+  "techstack": "React, TypeScript, Next.js",
+  "amount": 5,
+  "userid": "{{userid}}"
+}
+```
+
+`userid` and `username` are passed to the assistant as variable values when the call starts. For local testing expose your dev server with a tunnel (e.g. `ngrok http 3000`) so Vapi can reach it.
+
+The interview *taking* flow uses a transient assistant defined in `constants/index.ts` (`interviewer`), so no extra dashboard configuration is needed for it.
+
+### 5. Run the dev server
+
+```bash
+npm run dev
+```
+
+Open [http://localhost:3000](http://localhost:3000).
 
 ---
 
 ## 📂 Project Structure
+
 ```text
-├── app/                  # Next.js App Router (Pages, Layouts, & Styles)
-├── components/           # Reusable UI components (Shadcn + Custom)
-├── firebase/             # Firebase Client & Admin SDK configurations
-├── lib/                  # Core logic
-│   ├── actions/          # Auth, SignIn, and Server-side logic
-│   └── utils.ts          # Helper functions & Tailwind merging
-├── public/               # Static assets (Logos, Icons, SVGs)
-└── types/                # TypeScript interfaces (User, Interview, Feedback)
->>>>>>> d72c2f08175be28b67707bd47d23f727c8aed058
+├── app/
+│   ├── (auth)/               # Sign-in / sign-up pages
+│   ├── (root)/               # Authenticated app
+│   │   ├── page.tsx          # Dashboard
+│   │   └── interview/
+│   │       ├── page.tsx      # Generate a new interview (voice)
+│   │       └── [id]/         # Take an interview + view feedback
+│   ├── api/vapi/generate/    # Endpoint Vapi calls to create an interview
+│   └── components/           # Agent, AuthForm, InterviewCard, ...
+├── components/ui/            # shadcn/ui primitives
+├── constants/                # Tech-icon mappings, interviewer assistant, feedback schema
+├── firebase/                 # Firebase client & admin initialisation
+├── lib/actions/              # Server actions (auth, interviews, feedback)
+├── public/                   # Static assets
+└── types/                    # Shared TypeScript types
+```
+
+---
+
+## 🧪 Scripts
+
+| Command         | Description                 |
+| --------------- | --------------------------- |
+| `npm run dev`   | Start the development server |
+| `npm run build` | Create a production build    |
+| `npm run start` | Run the production build     |
+| `npm run lint`  | Run ESLint                   |

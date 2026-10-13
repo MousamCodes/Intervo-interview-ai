@@ -1,35 +1,49 @@
-"use client"
+"use client";
 
-import { useState } from "react" // Added for loading state
-import { zodResolver } from "@hookform/resolvers/zod"
-import { useForm } from "react-hook-form"
-import * as z from "zod"
-import { Button } from "@/components/ui/button"
-import { Form } from "@/components/ui/form"
-import Image from 'next/image'
-import Link from 'next/link'
-import { toast } from "sonner"
-import FormField from './FormField'
-import { useRouter } from 'next/navigation'
-import { createUserWithEmailAndPassword, signInWithEmailAndPassword } from 'firebase/auth'
-import { auth } from '@/firebase/client'
-import { signIn, signUp } from '@/lib/actions/auth.action'
-import { Loader2 } from "lucide-react" // For the loading spinner
+import { useState } from "react";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { useForm } from "react-hook-form";
+import * as z from "zod";
+import Image from "next/image";
+import Link from "next/link";
+import { toast } from "sonner";
+import { useRouter } from "next/navigation";
+import { Loader2 } from "lucide-react";
+import {
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  updateProfile,
+} from "firebase/auth";
 
-const authFormSchema = (type: 'sign-in' | 'sign-up') => {
+import { Button } from "@/components/ui/button";
+import { Form } from "@/components/ui/form";
+import FormField from "./FormField";
+import { auth } from "@/firebase/client";
+import { signIn, signUp } from "@/lib/actions/auth.action";
+
+const authFormSchema = (type: FormType) => {
   return z.object({
-    username: type === 'sign-up' 
-      ? z.string().min(3, "Username must be at least 3 characters long") 
-      : z.string().optional(),
-    email: z.string().email("Invalid email address"),
-    password: z.string().min(8, "Password must be at least 8 characters long")
-  })
-}
+    username:
+      type === "sign-up"
+        ? z.string().min(3, "Name must be at least 3 characters long")
+        : z.string().optional(),
+    email: z.email("Invalid email address"),
+    password: z.string().min(8, "Password must be at least 8 characters long"),
+  });
+};
 
-const AuthForm = ({ type }: { type: 'sign-in' | 'sign-up' }) => {
-  const [isLoading, setIsLoading] = useState(false)
+/** Extracts the `code` from a Firebase client SDK error, if present. */
+const getFirebaseErrorCode = (error: unknown): string => {
+  if (typeof error === "object" && error !== null && "code" in error) {
+    return String((error as { code: unknown }).code);
+  }
+  return "unknown";
+};
+
+const AuthForm = ({ type }: { type: FormType }) => {
+  const [isLoading, setIsLoading] = useState(false);
   const router = useRouter();
-  const isSignIn = type === 'sign-in';
+  const isSignIn = type === "sign-in";
   const schema = authFormSchema(type);
 
   const form = useForm<z.infer<typeof schema>>({
@@ -37,18 +51,25 @@ const AuthForm = ({ type }: { type: 'sign-in' | 'sign-up' }) => {
     defaultValues: {
       username: "",
       email: "",
-      password: ""
+      password: "",
     },
-  })
+  });
 
-  async function onSubmit(data: z.infer<typeof schema>) {
-  setIsLoading(true);
-  
-  // SIGN UP BLOCK
-  if (type === 'sign-up') {
+  const handleSignUp = async (data: z.infer<typeof schema>) => {
+    const { username, email, password } = data;
+
     try {
-      const { username, email, password } = data;
-      const userCredentials = await createUserWithEmailAndPassword(auth, email, password);
+      const userCredentials = await createUserWithEmailAndPassword(
+        auth,
+        email,
+        password
+      );
+
+      // Store the display name on the Firebase auth user too so the server
+      // can recover it if the Firestore profile is ever missing.
+      if (username) {
+        await updateProfile(userCredentials.user, { displayName: username });
+      }
 
       const result = await signUp({
         uid: userCredentials.user.uid,
@@ -57,77 +78,120 @@ const AuthForm = ({ type }: { type: 'sign-in' | 'sign-up' }) => {
         password,
       });
 
-      if (result?.success) {
+      if (result.success) {
         toast.success(result.message);
-        router.push('/sign-in');
+        router.push("/sign-in");
       } else {
-        toast.error(result?.message);
+        toast.error(result.message);
       }
-    } catch (error: any) {
-      // Handle SignUp errors here (Email taken, etc.)
-      console.log("Sign Up Error:", error.code);
-      if (error.code === 'auth/email-already-in-use') {
-        toast.error("Email already in use. Try signing in!");
-        router.push('/sign-in');
-      } else {
-        toast.error("Could not create account. Please try again.");
-      }
-    } finally {
-      setIsLoading(false);
-    }
-    return; // Stop here so it doesn't run the sign in code
-  }
+    } catch (error: unknown) {
+      const code = getFirebaseErrorCode(error);
+      console.error("Sign up error:", code);
 
-  // sign in block
-  if (type === 'sign-in') {
+      switch (code) {
+        case "auth/email-already-in-use":
+          toast.error("This email is already in use. Try signing in.");
+          router.push("/sign-in");
+          break;
+        case "auth/invalid-email":
+          toast.error("That email address is not valid.");
+          break;
+        case "auth/weak-password":
+          toast.error("Please choose a stronger password.");
+          break;
+        default:
+          toast.error("Could not create your account. Please try again.");
+      }
+    }
+  };
+
+  const handleSignIn = async (data: z.infer<typeof schema>) => {
+    const { email, password } = data;
+
     try {
-      const { email, password } = data;
-      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      const userCredential = await signInWithEmailAndPassword(
+        auth,
+        email,
+        password
+      );
       const idToken = await userCredential.user.getIdToken();
 
       const result = await signIn({ email, idToken });
 
-      if (result?.success) {
+      if (result.success) {
         toast.success(result.message);
-        setTimeout(() => router.push('/'), 500);
+        router.push("/");
+        router.refresh();
+      } else if (result.code === "auth/user-not-found") {
+        toast.info(result.message);
+        router.push("/sign-up");
       } else {
-        toast.info(result?.message || "Redirecting to Sign Up...");
-        router.push('/sign-up');
+        toast.error(result.message);
       }
-    } catch (error: any) {
-      // Handle SignIn errors here (Wrong pass, No user)
-      console.log("Sign In Error:", error.code);
-      toast.info("Account not recognized. Moving to Sign Up...");
-      router.push('/sign-up');
+    } catch (error: unknown) {
+      const code = getFirebaseErrorCode(error);
+      console.error("Sign in error:", code);
+
+      switch (code) {
+        case "auth/user-not-found":
+          toast.info("No account found for this email. Let's create one.");
+          router.push("/sign-up");
+          break;
+        case "auth/wrong-password":
+        case "auth/invalid-credential":
+        case "auth/invalid-login-credentials":
+          toast.error("Incorrect email or password.");
+          break;
+        case "auth/too-many-requests":
+          toast.error("Too many attempts. Please wait a moment and try again.");
+          break;
+        default:
+          toast.error("Could not sign you in. Please try again.");
+      }
+    }
+  };
+
+  const onSubmit = async (data: z.infer<typeof schema>) => {
+    setIsLoading(true);
+    try {
+      if (isSignIn) {
+        await handleSignIn(data);
+      } else {
+        await handleSignUp(data);
+      }
     } finally {
       setIsLoading(false);
     }
-  }
-}
+  };
+
   return (
-    <div className="card-border w-full max-w-[566px] lg:min-w-[566px]">    
-      <div className="flex flex-col gap-6 card py-14 px-10 shadow-lg bg-white rounded-2xl">
-        
+    <div className="card-border w-full max-w-[566px] lg:min-w-[566px]">
+      <div className="flex flex-col gap-6 card py-14 px-10">
         <div className="flex flex-col items-center gap-4">
           <div className="flex flex-row gap-2 justify-center items-center">
             <Image src="/logo.svg" alt="Intervo Logo" height={32} width={38} />
-            <h2 className="text-3xl font-bold text-primary tracking-tight">Intervo</h2>
+            <h2 className="text-primary-100">Intervo</h2>
           </div>
-          <h3 className="text-muted-foreground font-medium">Practice job interviews with AI</h3>
+          <h3 className="text-muted-foreground font-medium">
+            Practice job interviews with AI
+          </h3>
         </div>
 
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+          <form
+            onSubmit={form.handleSubmit(onSubmit)}
+            className="w-full space-y-6 mt-4 form"
+          >
             {!isSignIn && (
-              <FormField 
+              <FormField
                 control={form.control}
-                name="username" 
+                name="username"
                 label="Name"
                 placeholder="Enter your name"
               />
             )}
 
-            <FormField 
+            <FormField
               control={form.control}
               name="email"
               label="Email Address"
@@ -135,7 +199,7 @@ const AuthForm = ({ type }: { type: 'sign-in' | 'sign-up' }) => {
               type="email"
             />
 
-            <FormField 
+            <FormField
               control={form.control}
               name="password"
               label="Password"
@@ -143,31 +207,33 @@ const AuthForm = ({ type }: { type: 'sign-in' | 'sign-up' }) => {
               type="password"
             />
 
-            <Button className="w-full py-6 text-lg" type="submit" disabled={isLoading}>
+            <Button className="btn w-full" type="submit" disabled={isLoading}>
               {isLoading ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   Please wait...
                 </>
+              ) : isSignIn ? (
+                "Sign In"
               ) : (
-                isSignIn ? 'Sign In' : 'Create an account'
+                "Create an account"
               )}
             </Button>
           </form>
         </Form>
 
-        <p className='text-center text-sm text-gray-500'>
+        <p className="text-center text-sm">
           {isSignIn ? "Don't have an account?" : "Already have an account?"}
-          <Link 
-            href={isSignIn ? '/sign-up' : '/sign-in'} 
-            className='font-bold text-primary hover:underline ml-1'
+          <Link
+            href={isSignIn ? "/sign-up" : "/sign-in"}
+            className="font-bold text-primary-200 hover:underline ml-1"
           >
-            {isSignIn ? 'Sign Up' : 'Sign In'}
+            {isSignIn ? "Sign Up" : "Sign In"}
           </Link>
         </p>
       </div>
     </div>
-  )
-}
+  );
+};
 
 export default AuthForm;
